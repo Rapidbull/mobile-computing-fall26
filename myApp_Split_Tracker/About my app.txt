@@ -1,0 +1,2 @@
+
+My App called "Split Track" is an app where you put in your race distance and time, and then it tells you what splits you need to hit to achieve that time.
