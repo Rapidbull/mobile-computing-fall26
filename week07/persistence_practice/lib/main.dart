@@ -73,6 +73,9 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: const Text('Load'),
             ),
+            const SizedBox(height: 12),
+
+            Text('Loaded: $_loadedName', style: const TextStyle(fontSize: 20)),
           ],
         ),
       ),
