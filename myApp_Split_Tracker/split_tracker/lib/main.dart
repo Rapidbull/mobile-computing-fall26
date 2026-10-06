@@ -165,9 +165,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
               child: ElevatedButton.icon(
                 onPressed: () {
-                  String hours = hoursController.text;
-                  String minutes = minutesController.text;
-                  String seconds = secondsController.text;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ResultsScreen(
+                        distance: selectedDistance,
+                        hours: hoursController.text,
+                        minutes: minutesController.text,
+                        seconds: secondsController.text,
+                      ),
+                    ),
+                  );
                 },
 
                 icon: const Icon(Icons.calculate),
@@ -195,6 +203,80 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),
+      ),
+    );
+  }
+}
+
+class ResultsScreen extends StatelessWidget {
+  final String distance;
+  final String hours;
+  final String minutes;
+  final String seconds;
+
+  const ResultsScreen({
+    super.key,
+    required this.distance,
+    required this.hours,
+    required this.minutes,
+    required this.seconds,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Race Splits',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 20),
+
+            const Center(
+              child: Icon(Icons.timer, size: 80, color: Colors.blue),
+            ),
+
+            const SizedBox(height: 30),
+
+            const Text(
+              'Selected Race',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(distance, style: const TextStyle(fontSize: 24)),
+
+            const SizedBox(height: 30),
+
+            const Text(
+              'Goal Time',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              '${hours.isEmpty ? '0' : hours}:'
+              '${minutes.isEmpty ? '00' : minutes}:'
+              '${seconds.isEmpty ? '00' : seconds}',
+              style: const TextStyle(fontSize: 24),
+            ),
+
+            const SizedBox(height: 30),
+          ],
+        ),
       ),
     );
   }
