@@ -394,43 +394,50 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Race Splits',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      home: const AuthGate(),
-    );
-  }
-}
-
-// The authentication stream controls which page is visible.
-class AuthGate extends StatelessWidget {
-  const AuthGate({super.key});
-
-  @override
-  Widget build(BuildContext context) {
+    // Keep the provider ABOVE MaterialApp, so Navigator-pushed screens
+    // (including ResultsScreen and RaceDetailsScreen) can access it.
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
+        final user = snapshot.data;
+        final Widget home;
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
+          home = const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
-        }
-        if (snapshot.hasError) {
-          return const Scaffold(
-            body: Center(child: Text('Could not check login. Check your connection.')),
+        } else if (snapshot.hasError) {
+          home = const Scaffold(
+            body: Center(
+              child: Text('Could not check login. Check your connection.'),
+            ),
           );
+        } else if (user == null) {
+          home = const LoginScreen();
+        } else {
+          home = const HomeScreen();
         }
-        final user = snapshot.data;
-        if (user == null) return const LoginScreen();
+
+        final app = MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Race Splits',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+            useMaterial3: true,
+          ),
+          home: home,
+        );
+
+        // Creating a fresh provider per UID also prevents data from one
+        // signed-in account carrying over to another.
+        if (user == null ||
+            snapshot.connectionState == ConnectionState.waiting ||
+            snapshot.hasError) {
+          return app;
+        }
         return ChangeNotifierProvider<RaceAppModel>(
           key: ValueKey(user.uid),
           create: (_) => RaceAppModel(),
-          child: const HomeScreen(),
+          child: app,
         );
       },
     );
