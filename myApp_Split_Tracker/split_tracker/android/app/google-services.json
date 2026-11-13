@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "207743259149",
+    "project_id": "split-tracker-8e1a1",
+    "storage_bucket": "split-tracker-8e1a1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:207743259149:android:023318dc8ceb479d173b44",
+        "android_client_info": {
+          "package_name": "com.example.split_tracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD7RTgJMgYB31Dnf0S8GkDckeJByos0ovA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
