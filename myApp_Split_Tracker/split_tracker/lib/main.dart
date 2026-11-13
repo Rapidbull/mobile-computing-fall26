@@ -1,10 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+
+import 'firebase_options.dart';
+import 'login_screen.dart';
+import 'saved_goals.dart';
 
 // All of the app's shared information stays in this one Dart file.
 enum LoadStatus { idle, loading, error, empty, data }
@@ -139,8 +146,42 @@ class RaceAppModel extends ChangeNotifier {
   int _raceRequest = 0;
   int _weatherRequest = 0;
 
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _savedRaceSubscription;
+
   RaceAppModel() {
-    loadSavedRace();
+    // A model exists only for the logged-in user; every change arrives live.
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      _savedRaceSubscription = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('saved')
+          .doc('nextRace')
+          .snapshots()
+          .listen((snapshot) {
+            final data = snapshot.data();
+            nextRace = data == null ? null : UpcomingRace.fromSaved(data);
+            notifyListeners();
+          }, onError: (Object e) {
+            debugPrint('Could not load saved race from Firestore: $e');
+          });
+    }
+  }
+
+  DocumentReference<Map<String, dynamic>> get _nextRaceDocument {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) throw StateError('Please log in to save a race.');
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('saved')
+        .doc('nextRace');
+  }
+
+  @override
+  void dispose() {
+    _savedRaceSubscription?.cancel();
+    super.dispose();
   }
 
   void changeDistance(String value) {
@@ -178,35 +219,15 @@ class RaceAppModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> loadSavedRace() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getString('next_race');
-      if (stored != null) {
-        nextRace = UpcomingRace.fromSaved(
-          Map<String, dynamic>.from(jsonDecode(stored) as Map),
-        );
-        notifyListeners();
-      }
-    } catch (e) {
-      debugPrint('Could not restore next race: $e');
-    }
-  }
-
   Future<void> saveNextRace() async {
     final race = selectedRace;
     if (race == null) return;
-    nextRace = race;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('next_race', jsonEncode(race.toJson()));
+    await _nextRaceDocument.set(race.toJson());
+    // Listener above updates nextRace and the home screen.
   }
 
   Future<void> clearNextRace() async {
-    nextRace = null;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('next_race');
+    await _nextRaceDocument.delete();
   }
 
   Future<void> loadRaces({String? name, String? state}) async {
@@ -360,10 +381,12 @@ String formatTime(double seconds) {
   return '$minutes:$rest';
 }
 
-void main() {
-  runApp(
-    ChangeNotifierProvider(create: (_) => RaceAppModel(), child: const MyApp()),
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
   );
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -378,7 +401,38 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+// The authentication stream controls which page is visible.
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return const Scaffold(
+            body: Center(child: Text('Could not check login. Check your connection.')),
+          );
+        }
+        final user = snapshot.data;
+        if (user == null) return const LoginScreen();
+        return ChangeNotifierProvider<RaceAppModel>(
+          key: ValueKey(user.uid),
+          create: (_) => RaceAppModel(),
+          child: const HomeScreen(),
+        );
+      },
     );
   }
 }
@@ -425,7 +479,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final model = context.watch<RaceAppModel>();
     final race = model.nextRace;
     return Scaffold(
-      appBar: AppBar(title: const Text('Race Splits')),
+      appBar: AppBar(
+        title: const Text('Race Splits'),
+        actions: [
+          IconButton(
+            tooltip: 'Log out',
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              // Remove signed-in routes before changing the auth state.
+              Navigator.of(context).popUntil((route) => route.isFirst);
+              await FirebaseAuth.instance.signOut();
+            },
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -486,6 +553,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 25),
           const Divider(),
+          const SavedGoalsSection(),
+          const SizedBox(height: 20),
+          const Divider(),
           const Text(
             'My Next Race',
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -518,7 +588,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 trailing: IconButton(
                   tooltip: 'Remove saved race',
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () => context.read<RaceAppModel>().clearNextRace(),
+                  onPressed: () async {
+                    try {
+                      await context.read<RaceAppModel>().clearNextRace();
+                    } catch (_) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Could not remove race. Try again.')),
+                      );
+                    }
+                  },
                 ),
               ),
             ),
@@ -605,6 +684,28 @@ class ResultsScreen extends StatelessWidget {
             ),
           ),
           Center(child: Text('Average pace: ${formatTime(pace)} / km')),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            icon: const Icon(Icons.cloud_upload_outlined),
+            label: const Text('Save Goal to Cloud'),
+            onPressed: () async {
+              try {
+                await saveSplitGoal(
+                  distance: model.selectedDistance,
+                  goalSeconds: model.goalSeconds,
+                );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Split goal saved to your account!')),
+                );
+              } catch (_) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Could not save goal. Check your connection.')),
+                );
+              }
+            },
+          ),
           const SizedBox(height: 18),
           const Text(
             'Even-pace targets',
@@ -848,7 +949,7 @@ class _RaceDetailsScreenState extends State<RaceDetailsScreen> {
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Could not save race on this device.'),
+                    content: Text('Could not save race to the cloud. Check your connection.'),
                   ),
                 );
               }
